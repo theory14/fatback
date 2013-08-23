@@ -1,0 +1,20 @@
+# example  backup schedule
+#
+#
+############
+# host1
+#
+# This is host that is always up.
+############
+host1:/home:7::
+host1:/root:7::
+host1:/etc:7::
+############
+# host2
+#
+# This is a workstation that goes to sleep.  Including the MAC 
+# address allows it to be woken from sleep for back up jobs. 
+# This host also excludes certain files in /Users from backups.
+############
+host2:/Users:7:example.host2.exclude:00-1f-5b-39-ae-50
+host2:/etc:7::00-1f-5b-39-ae-50
