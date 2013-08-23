@@ -17,15 +17,15 @@ tools including heavy reliance on rsync.
 The data backed up consists of:
 * Full backups named:
 
-    host_-path-to-dir_FULL.tar.gz
+        host_-path-to-dir_FULL.tar.gz
 
 * Incremental backups (retained for specified number of days) named:
 
-    host_-path-to-dir_INC_YYYYMMDD.tar.gz
+        host_-path-to-dir_INC_YYYYMMDD.tar.gz
 
 The backups are stored in a configurable location:
 
-    ${BACKUP_DIR}/jobname/host/
+        ${BACKUP_DIR}/jobname/host/
 
 All backups are stored as simple gzipped tarballs making restoring files simple.  There is no automatic restore capability provided nor required.  I just kept it simple here.
 
@@ -38,7 +38,7 @@ All backups are stored as simple gzipped tarballs making restoring files simple.
     * If you want to exclude files from a backup, create a jobname.hostname.exclude file
 * run the job by calling:
 
-    fatback <jobname>
+        fatback jobname
 
 NOTE: You must have ssh access with key based authentication setup between backup server and backup target.
 
