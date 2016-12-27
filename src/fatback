@@ -1,4 +1,4 @@
-#!/bin/sh 
+#!/bin/sh
 #
 # fatback
 #
@@ -16,14 +16,14 @@
 
 # Directory holding all of the configuration files
 CONF_DIR=/usr/local/fatback/etc
-DATE=`date +%Y%m%d`
+DATE=$(date +%Y%m%d)
 
 #
 # FUNCTIONS
 #
 
 # print simple usage information.
-function usage ()
+usage ()
 {
 	echo "Usage:"
 	echo "  `basename $0` <backup-set>"
@@ -31,7 +31,7 @@ function usage ()
 }
 
 # this does our logging.
-function logit()
+logit()
 {
 	LEVEL=$1
 	MESSAGE=$2
@@ -46,7 +46,7 @@ function logit()
 }
 
 # clean up the old incremental backup files that are no longer needed
-function cleanold ()
+cleanold ()
 {
 	LASTDATE=`date --date="$KEEPERS days ago" +%Y%m%d`
 
@@ -131,7 +131,7 @@ do
 		logit 4 "Excluding files based on ${EXCLUDEFILE}"
 	else
 		EXCLUDEFILE=""
-	fi		
+	fi
 
 	# we need to get rid of any "/" in the backup dir
 	# so we can create filenames with it.
@@ -159,7 +159,7 @@ do
 		OPWD=$PWD
 		cd $WORK_DIR
 		#cd /
-		tar xzfv $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar.gz 2>&1 1>/dev/null
+		tar xzfv ${BACKUP_DIR}/${HOST}/${HOST}_${DIR}_FULL.tar.gz 2>&1 1>/dev/null
 		cd $OPWD
 	fi
 
@@ -176,7 +176,7 @@ do
 	# now time to run the rsync
 	logit 1 "Starting backup of $HOST:$BDIR"
 
-	${RSYNC_PATH_L} -ab --exclude-from=${EXCLUDEFILE} --delete-excluded --delete -e "${RSYNC_SHELL}" --rsync-path=${RSYNC_PATH_R} --backup-dir=${WORK_DIR}/${HOST}_${DIR}_INC ${RSYNC_USER}@${HOST}:${BDIR}/ ${WORK_DIR}/${HOST}_${DIR}_FULL 
+	${RSYNC_PATH_L} -ab --exclude-from=${EXCLUDEFILE} --delete-excluded --delete -e "${RSYNC_SHELL}" --rsync-path=${RSYNC_PATH_R} --backup-dir=${WORK_DIR}/${HOST}_${DIR}_INC ${RSYNC_USER}@${HOST}:${BDIR}/ ${WORK_DIR}/${HOST}_${DIR}_FULL
 
 	logit 1 "Copy of $HOST:$BDIR done. Starting compression."
 
@@ -184,7 +184,7 @@ do
 	# if there is an old full backup, get rid of it now
 	# this could be dangerous -- need to check return status of the rsync.
 	# if the rsync failed, then we should have already exited from this script
-	rm $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar.gz
+	rm ${BACKUP_DIR}/${HOST}/${HOST}_${DIR}_FULL.tar.gz
 	if [ -f ${BACKUP_DIR}/${HOST}_${DIR}_FULL.tar.gz ]; then
 		logit 4 "Deleting old full $BACKUP_DIR/${HOST}_${DIR}_FULL.tar.gz"
 		rm $BACKUP_DIR/${HOST}_${DIR}_FULL.tar.gz
@@ -194,7 +194,7 @@ do
 	OPWD=$PWD
 	cd $WORK_DIR
 	#tar -cf $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar ${HOST}_${DIR}_FULL 2>&1 1>/dev/null
-	tar -cf $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar ${HOST}_${DIR}_FULL 
+	tar -cf $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar ${HOST}_${DIR}_FULL
 	cd $OPWD
 	gzip $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar
 	rm -rf $WORK_DIR/${HOST}_${DIR}_FULL
