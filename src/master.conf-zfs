@@ -43,15 +43,6 @@ DEBUGLEVEL=4
 LOGFILE="/var/log/fatback"
 #LOGGER="/usr/bin/logger"
 
-# RSYNC_SHELL
-#
-# The shell to call for rsync process.  This is the used to fill in the
-# "-e" option for rsync.  This should include any options you want to
-# call with the shell.
-# For instance, if you're using ssh, you may want to specify a different
-# cypher for a faster transfer.
-RSYNC_SHELL="/usr/bin/ssh"
-
 # RSYNC_USER
 #
 # The user account on the remote side.  You need to have the approporate
@@ -64,7 +55,7 @@ RSYNC_USER="root"
 #
 # This is the path to the local copy of rsync.  This is the command
 # called to run the backup process.
-RSYNC_PATH_L="/usr/bin/rsync"
+RSYNC_PATH_L="/usr/local/bin/rsync"
 
 # RSYNC_PATH_R
 #
@@ -72,7 +63,7 @@ RSYNC_PATH_L="/usr/bin/rsync"
 # called to run the backup process.  Sometimes (often), rsync may not
 # be in the path provided when the connection is made.  This allows
 # you to specify exactly where rsync is.
-RSYNC_PATH_R="/usr/bin/rsync"
+RSYNC_PATH_R="/usr/local/bin/rsync"
 
 # BWLIMIT
 #
@@ -85,5 +76,5 @@ BWLIMIT="0"
 #
 # The path to the wol command (wake on lan) to send Wake On LAN magic
 # packets
-WOL=/usr/bin/wol
+WOL=/usr/local/bin/wol
 

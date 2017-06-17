@@ -4,18 +4,25 @@
 #
 # simple backup program
 # Author:  Chris Gordon
-# (c) 2005
+# (c) 2005, 2017
 #
 # Nov 2009:  Implemented the following:
 #	- Support for Wake On Lan
 #	- Exclude files supported
+# Jun 2017:  Changes to leverage ZFS storage:
+#	- Let ZFS do compression and stop doing it with gzip and friends
+#	- Leverage ZFS snapshots for incremental backups
+#	- No longer tar up everything into a single file since this would break
+#	  snapshotting and is no longer needed for compression
+#	- Paths and locations more consistent with FreeBSD conventions.
+#	- Remove GNU'isms
 
 #
 # VARIABLES
 #
 
 # Directory holding all of the configuration files
-CONF_DIR=/usr/local/fatback/etc
+CONF_DIR=/usr/local/etc/fatback/
 DATE=$(date +%Y%m%d)
 
 #
@@ -26,8 +33,8 @@ DATE=$(date +%Y%m%d)
 usage ()
 {
 	echo "Usage:"
-	echo "  `basename $0` <backup-set>"
-	exit
+	echo "  $(basename "$0") <backup-set>"
+	exit 1
 }
 
 # this does our logging.
@@ -36,11 +43,11 @@ logit()
 	LEVEL=$1
 	MESSAGE=$2
 
-	if [ $LEVEL -le $DEBUGLEVEL ]; then
-		if [ $LOGFILE == "syslog" ]; then
-			$LOGGER -t `basename $0` -- $MESSAGE
+	if [ "${LEVEL}" -le "${DEBUGLEVEL}" ]; then
+		if [ "${LOGFILE}" = "syslog" ]; then
+			${LOGGER} -t "$(basename "$0")" -- "${MESSAGE}"
 		else
-			echo $MESSAGE >> $LOGFILE
+			echo "$(date +%b\ %d\ %H:%M:%S) ${MESSAGE}" >> "${LOGFILE}"
 		fi
 	fi
 }
@@ -48,21 +55,34 @@ logit()
 # clean up the old incremental backup files that are no longer needed
 cleanold ()
 {
-	LASTDATE=`date --date="$KEEPERS days ago" +%Y%m%d`
+	BUPATH=$(echo "$1" | sed 's|^/||')
+	LASTDATE=$(date -r $(echo "$(date +%s) - (${KEEPERS} * 24 *60 *60)" | bc ) +%Y%m%d)
 
-	for FILE in $BACKUP_DIR/$HOST/${HOST}_${DIR}_INC*
+	for SNAPSHOT in $(zfs list -t snapshot | grep "${BUPATH}" | cut -d\  -f1)
 	do
-		# Grab the date from our file and see if it
+		# Grab the date from the snapshot name and see if it
 		# is older than the date we should keep around.
-		# This makes our deletion based no the timestamp
-		# we encode in the filename and not a filesystem
-		# attribute.
-		if [ -f $FILE ]; then
-			FILEDATE=`echo $FILE | cut -d_ -f4 | cut -d. -f1`
-			if [ $FILEDATE -lt $LASTDATE ]; then
-				rm -f $FILE
-				logit 2 "Deleting old backup file:  $FILE"
-			fi
+		# This makes our deletion based on the timestamp
+		# we encode in the snapshot
+		SNAPSHOTDATE=$(echo "${SNAPSHOT}" | cut -d2 -f2)
+		if [ "${SNAPSHOTDATE}" -lt "${LASTDATE}" ]; then
+			zfs destroy "${SNAPSHOT}"
+			logit 2 "Deleting old backup snapshot:  $SNAPSHOT"
+		fi
+	done
+}
+
+# create necessary volumes
+mkpath() {
+	BUPATH=$1
+	FULLPATH="/"
+
+	for PART in $(echo "${BUPATH}" | tr "/" "\n"); do
+		FULLPATH=${FULLPATH}/${PART}
+		if [ ! -d "${FULLPATH}" ]; then
+			CREATEPATH=$(echo "${FULLPATH}" | sed 's|^/||')
+			logit 2 "Creating ${CREATEPATH}"
+			zfs create "${CREATEPATH}"
 		fi
 	done
 }
@@ -71,10 +91,12 @@ cleanold ()
 # MAIN
 #
 
+logit 1 "Starting Fatback"
+
 # we have to have the master configuration file to run.
-if [ -f $CONF_DIR/master.conf ]; then
-	. $CONF_DIR/master.conf
-	logit 4 "Loaded $CONF_DIR/master.conf"
+if [ -f "${CONF_DIR}/master.conf" ]; then
+	. "${CONF_DIR}/master.conf"
+	logit 4 "Loaded ${CONF_DIR}/master.conf"
 else
 	echo "$CONF_DIR/master.conf is missing."
 	exit
@@ -89,21 +111,21 @@ fi
 
 SET=$1
 
-if [ ! $SET ]; then
+if [ ! "${SET}" ]; then
 	usage
 else
-	logit 4 "Checking set $SET"
-	if [ -f $CONF_DIR/${SET}.conf ]; then
-		. $CONF_DIR/${SET}.conf
-		logit 4 "Loaded $CONF_DIR/${SET}.conf"
+	logit 4 "Checking set ${SET}"
+	if [ -f "${CONF_DIR}/${SET}.conf" ]; then
+		. "${CONF_DIR}/${SET}.conf"
+		logit 4 "Loaded ${CONF_DIR}/${SET}.conf"
 	else
-		echo "Set configuration file not present:  $CONF_DIR/${SET}.conf"
+		echo "Set configuration file not present:  ${CONF_DIR}/${SET}.conf"
 		exit
 	fi
-	if [ -f $CONF_DIR/${SET}.sked ]; then
-		logit 4 "Sked file found $CONF_DIR/${SET}.sked"
+	if [ -f "${CONF_DIR}/${SET}.sked" ]; then
+		logit 4 "Sked file found ${CONF_DIR}/${SET}.sked"
 	else
-		echo "Set schedule file not present:  $CONF_DIR/${SET}.sked"
+		echo "Set schedule file not present:  ${CONF_DIR}/${SET}.sked"
 		exit
 	fi
 fi
@@ -112,22 +134,22 @@ logit 2 "Loaded configuration."
 
 # MAIN LOOP
 
-for LINE in `grep -v "^.*#" $CONF_DIR/$SET.sked`
+for LINE in $(grep -v "^.*#" "${CONF_DIR}/${SET}.sked")
 do
 	logit 4 "Processing sked line:  $LINE"
 	# get our variables
 
-	HOST=`echo $LINE |cut -d: -f1`
-	BDIR=`echo $LINE |cut -d: -f2`
-	KEEPERS=`echo $LINE |cut -d: -f3`
-	EXCLUDEFILE=`echo $LINE |cut -d: -f4`
-	MAC=`echo $LINE |cut -d: -f5`
+	HOST=$(echo "${LINE}" |cut -d: -f1)
+	BDIR=$(echo "${LINE}" |cut -d: -f2)
+	KEEPERS=$(echo "${LINE}" |cut -d: -f3)
+	EXCLUDEFILE=$(echo "${LINE}" |cut -d: -f4)
+	MAC=$(echo "${LINE}" |cut -d: -f5)
 
 	# check if EXCLUDEFILE file exists, if so, rewrite it with
 	# $CONF_DIR prepended.  This also catches the case where it
 	# not set and ensures that it is set to null for later use.
-	if [ -f ${CONF_DIR}/${EXCLUDEFILE} ]; then
-		EXCLUDEFILE=${CONF_DIR}/${EXCLUDEFILE}
+	if [ -f "${CONF_DIR}/${EXCLUDEFILE}" ]; then
+		EXCLUDEFILE="${CONF_DIR}/${EXCLUDEFILE}"
 		logit 4 "Excluding files based on ${EXCLUDEFILE}"
 	else
 		EXCLUDEFILE=""
@@ -135,82 +157,41 @@ do
 
 	# we need to get rid of any "/" in the backup dir
 	# so we can create filenames with it.
-	DIR=`echo $BDIR | tr / -`
+	DIR=$(echo ${BDIR} | tr / -)
 
+	# BUPATH is the entire path for backups put together in one variable
+	# to make things easier and more readable later on.
+	BUPATH=${BACKUP_DIR}/${HOST}/${DIR}
 
-
-	# verify/create directories for the host
+	# verify/create filesystems for the host
 	# Also clean up anything old based on KEEPERS
 
-	if [ -d ${BACKUP_DIR}/${HOST} ]; then
+	if [ -d "${BUPATH}" ]; then
 		cleanold
 	else
-		if [ ! -d ${BACKUP_DIR}/${HOST} ]; then
-			mkdir -p ${BACKUP_DIR}/${HOST}
+		if [ ! -d ${BUPATH} ]; then
+			mkpath ${BUPATH}
 		fi
-	fi
-
-	# if we have an old backup image, lay that
-	# down so that the rsync is faster
-	# This is a bit of a hack job, so should be "fixed"
-	# to something more elegant.
-	if [ -f ${BACKUP_DIR}/${HOST}/${HOST}_${DIR}_FULL.tar.gz ]; then
-		logit 4 "Expanding existing full ${HOST}_${DIR}_FULL.tar.gz"
-		OPWD=$PWD
-		cd $WORK_DIR
-		#cd /
-		tar xzfv ${BACKUP_DIR}/${HOST}/${HOST}_${DIR}_FULL.tar.gz 2>&1 1>/dev/null
-		cd $OPWD
 	fi
 
 	# If there is a MAC address, wake up the $HOST
 	# and sleep for a little bit to make sure everytyhing
 	# starts up ok.
-	if [ "${MAC}" != "" ]; then
-		MAC=`echo ${MAC} | tr - :`
-		logit 4 "Waking ${HOST} at ${MAC}"
-		${WOL} ${MAC} 2>&1 1>/dev/null
-		/bin/sleep 30
+	if [ -f "${WOL}" ]; then
+		if [ "${MAC}" != "" ]; then
+			MAC=$(echo ${MAC} | tr - :)
+			logit 4 "Waking ${HOST} at ${MAC}"
+			${WOL} ${MAC} 2>&1 1>/dev/null
+			/bin/sleep 30
+		fi
 	fi
 
+	# Create snapshot for today
+	zfs snapshot "${BUPATH}@${DATE}"
 	# now time to run the rsync
 	logit 1 "Starting backup of $HOST:$BDIR"
-
-	${RSYNC_PATH_L} -ab --exclude-from=${EXCLUDEFILE} --delete-excluded --delete -e "${RSYNC_SHELL}" --rsync-path=${RSYNC_PATH_R} --backup-dir=${WORK_DIR}/${HOST}_${DIR}_INC ${RSYNC_USER}@${HOST}:${BDIR}/ ${WORK_DIR}/${HOST}_${DIR}_FULL
-
-	logit 1 "Copy of $HOST:$BDIR done. Starting compression."
-
-	# tar and gzip files back to backup dir
-	# if there is an old full backup, get rid of it now
-	# this could be dangerous -- need to check return status of the rsync.
-	# if the rsync failed, then we should have already exited from this script
-	rm ${BACKUP_DIR}/${HOST}/${HOST}_${DIR}_FULL.tar.gz
-	if [ -f ${BACKUP_DIR}/${HOST}_${DIR}_FULL.tar.gz ]; then
-		logit 4 "Deleting old full $BACKUP_DIR/${HOST}_${DIR}_FULL.tar.gz"
-		rm $BACKUP_DIR/${HOST}_${DIR}_FULL.tar.gz
-	fi
-
-	# full
-	OPWD=$PWD
-	cd $WORK_DIR
-	#tar -cf $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar ${HOST}_${DIR}_FULL 2>&1 1>/dev/null
-	tar -cf $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar ${HOST}_${DIR}_FULL
-	cd $OPWD
-	gzip $BACKUP_DIR/${HOST}/${HOST}_${DIR}_FULL.tar
-	rm -rf $WORK_DIR/${HOST}_${DIR}_FULL
-	logit 4 "Completed creating $BACKUP_DIR/${HOST}_${BDIR}_FULL.tar.gz"
-
-	# incrmental
-	if [ -d $WORK_DIR/${HOST}_${DIR}_INC ]; then
-		OPWD=$PWD
-		cd $WORK_DIR
-		#tar -cf $BACKUP_DIR/${HOST}/${HOST}_${DIR}_INC_$DATE.tar ${HOST}_${DIR}_INC 2>&1 1>/dev/null
-		tar -cf $BACKUP_DIR/${HOST}/${HOST}_${DIR}_INC_$DATE.tar ${HOST}_${DIR}_INC
-		cd $OPWD
-		gzip $BACKUP_DIR/${HOST}/${HOST}_${DIR}_INC_$DATE.tar
-		rm -rf $WORK_DIR/${HOST}_${DIR}_INC
-		logit 4 "Completed creating $BACKUP_DIR/${HOST}_${BDIR}_INC_${DATE}.tar.gz"
-	fi
+	${RSYNC_PATH_L} -a --exclude-from=${EXCLUDEFILE} --delete-excluded --delete  --rsync-path=${RSYNC_PATH_R}  ${RSYNC_USER}@${HOST}:${BDIR}/ ${BUPATH}
+	logit 1 "Copy of $HOST:$BDIR done"
 
 	logit 1 "Completed backup of $HOST:$BDIR"
 
