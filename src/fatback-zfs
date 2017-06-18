@@ -22,7 +22,7 @@
 #
 
 # Directory holding all of the configuration files
-CONF_DIR=/usr/local/etc/fatback/
+CONF_DIR=/usr/local/etc/fatback
 DATE=$(date +%Y%m%d)
 
 #
@@ -55,19 +55,25 @@ logit()
 # clean up the old incremental backup files that are no longer needed
 cleanold ()
 {
-	BUPATH=$(echo "$1" | sed 's|^/||')
+	BP=$(echo "$1" | sed 's|^/||')
 	LASTDATE=$(date -r $(echo "$(date +%s) - (${KEEPERS} * 24 *60 *60)" | bc ) +%Y%m%d)
 
-	for SNAPSHOT in $(zfs list -t snapshot | grep "${BUPATH}" | cut -d\  -f1)
+	for SNAPSHOT in $(zfs list -rt snapshot -o name "${BP}")
 	do
+		if [ "${SNAPSHOT}" = "NAME" ]; then
+			continue
+		fi
+		if [ "${SNAPSHOT}" = "no" ]; then
+			break
+		fi
 		# Grab the date from the snapshot name and see if it
 		# is older than the date we should keep around.
 		# This makes our deletion based on the timestamp
 		# we encode in the snapshot
-		SNAPSHOTDATE=$(echo "${SNAPSHOT}" | cut -d2 -f2)
+		SNAPSHOTDATE=$(echo "${SNAPSHOT}" | cut -d@ -f2)
 		if [ "${SNAPSHOTDATE}" -lt "${LASTDATE}" ]; then
 			zfs destroy "${SNAPSHOT}"
-			logit 2 "Deleting old backup snapshot:  $SNAPSHOT"
+			logit 2 "Deleting old backup snapshot:  ${SNAPSHOT}"
 		fi
 	done
 }
@@ -75,7 +81,7 @@ cleanold ()
 # create necessary volumes
 mkpath() {
 	BUPATH=$1
-	FULLPATH="/"
+	FULLPATH=""
 
 	for PART in $(echo "${BUPATH}" | tr "/" "\n"); do
 		FULLPATH=${FULLPATH}/${PART}
@@ -91,7 +97,6 @@ mkpath() {
 # MAIN
 #
 
-logit 1 "Starting Fatback"
 
 # we have to have the master configuration file to run.
 if [ -f "${CONF_DIR}/master.conf" ]; then
@@ -101,6 +106,8 @@ else
 	echo "$CONF_DIR/master.conf is missing."
 	exit
 fi
+
+logit 1 "Starting fatback"
 
 # if we were called with a specific backup set, get
 # that config.  This config can overwrite variables
@@ -157,17 +164,17 @@ do
 
 	# we need to get rid of any "/" in the backup dir
 	# so we can create filenames with it.
-	DIR=$(echo ${BDIR} | tr / -)
+	DIR="$(echo ${BDIR} | sed 's|/|-|g' | sed 's|-||')"
 
 	# BUPATH is the entire path for backups put together in one variable
 	# to make things easier and more readable later on.
-	BUPATH=${BACKUP_DIR}/${HOST}/${DIR}
+	BUPATH=${BACKUP_DIR}/${SET}/${HOST}/${DIR}
 
 	# verify/create filesystems for the host
 	# Also clean up anything old based on KEEPERS
 
 	if [ -d "${BUPATH}" ]; then
-		cleanold
+		cleanold ${BUPATH}
 	else
 		if [ ! -d ${BUPATH} ]; then
 			mkpath ${BUPATH}
@@ -187,13 +194,18 @@ do
 	fi
 
 	# Create snapshot for today
-	zfs snapshot "${BUPATH}@${DATE}"
+	DATASET_NAME="$(echo "${BUPATH}" | sed 's|/||')"
+	logit 1 "Creating current snapshot"
+	zfs snapshot ${DATASET_NAME}@${DATE} 2>/dev/null
+
 	# now time to run the rsync
 	logit 1 "Starting backup of $HOST:$BDIR"
 	${RSYNC_PATH_L} -a --exclude-from=${EXCLUDEFILE} --delete-excluded --delete  --rsync-path=${RSYNC_PATH_R}  ${RSYNC_USER}@${HOST}:${BDIR}/ ${BUPATH}
 	logit 1 "Copy of $HOST:$BDIR done"
 
 	logit 1 "Completed backup of $HOST:$BDIR"
-
 done
 
+logit 1 "Fatback run complete"
+
+exit 0

@@ -12,15 +12,7 @@
 # The file names are of the format:
 #	host_dir_full.tar.gz (for full backups)
 #	host_dir_inc_YYYYMMDD.tar.gz (for incremental diffs)
-BACKUP_DIR=/data/fatback/
-
-# WORK_DIR
-#
-# This is the temporary location where the copies of data
-# are actually made.  This only needs to be as large as the
-# largest single filesystem you are backing up (including any
-# files deleted between the current backup and the last backup)
-WORK_DIR=/data/fatback/working
+BACKUP_DIR=/data/fatback
 
 # DEBUGLEVEL
 #
@@ -40,7 +32,7 @@ DEBUGLEVEL=4
 # this will call the logger program to write messages via syslogd.  If
 # you do specify "syslog", then LOGGER must specify the path to the
 # logger program.
-LOGFILE="/var/log/fatback"
+LOGFILE="/var/log/fatback.log"
 #LOGGER="/usr/bin/logger"
 
 # RSYNC_USER
