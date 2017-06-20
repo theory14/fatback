@@ -72,8 +72,14 @@ cleanold ()
 		# we encode in the snapshot
 		SNAPSHOTDATE=$(echo "${SNAPSHOT}" | cut -d@ -f2)
 		if [ "${SNAPSHOTDATE}" -lt "${LASTDATE}" ]; then
-			zfs destroy "${SNAPSHOT}"
-			logit 2 "Deleting old backup snapshot:  ${SNAPSHOT}"
+			# Try to destroy the old snapshot and capture the results
+			RESULT=$(zfs destroy "${SNAPSHOT}" 2>&1)
+			RC=$?
+			if [ "${RC}" -ne 0 ]; then
+				logit 1 "ERROR:  Failed to delete snapshot ${SNAPSHOT}:  ${RESULT}"
+			else
+				logit 2 "Deleting old backup snapshot:  ${SNAPSHOT}"
+			fi
 		fi
 	done
 }
@@ -87,8 +93,14 @@ mkpath() {
 		FULLPATH=${FULLPATH}/${PART}
 		if [ ! -d "${FULLPATH}" ]; then
 			CREATEPATH=$(echo "${FULLPATH}" | sed 's|^/||')
-			logit 2 "Creating ${CREATEPATH}"
-			zfs create "${CREATEPATH}"
+			RESULT=$(zfs create "${CREATEPATH}" 2>&1)
+			RC=$?
+			if [ "${RC}" -ne 0 ]; then
+				logit 1 "ERROR:  Failed to create ${CREATEPATH}:  ${RESULT}"
+				exit 1
+			else
+				logit 2 "Creating ${CREATEPATH}"
+			fi
 		fi
 	done
 }
@@ -186,7 +198,7 @@ do
 	# starts up ok.
 	if [ -f "${WOL}" ]; then
 		if [ "${MAC}" != "" ]; then
-			MAC=$(echo ${MAC} | tr - :)
+			MAC=$(echo "${MAC}" | tr - :)
 			logit 4 "Waking ${HOST} at ${MAC}"
 			${WOL} ${MAC} 2>&1 1>/dev/null
 			/bin/sleep 30
@@ -195,13 +207,23 @@ do
 
 	# Create snapshot for today
 	DATASET_NAME="$(echo "${BUPATH}" | sed 's|/||')"
-	logit 1 "Creating current snapshot"
-	zfs snapshot ${DATASET_NAME}@${DATE} 2>/dev/null
+	RESULT=$(zfs snapshot ${DATASET_NAME}@${DATE} 2>&1)
+	RC=$?
+	if [ "${RC}" -ne 0 ]; then
+		logit 1 "ERROR:  Failed to create snapshot ${DATASET_NAME}@${DATE}:  ${RESULT}"
+	else
+		logit 1 "Creating current snapshot"
+	fi
 
 	# now time to run the rsync
 	logit 1 "Starting backup of $HOST:$BDIR"
-	${RSYNC_PATH_L} -a --exclude-from=${EXCLUDEFILE} --delete-excluded --delete  --rsync-path=${RSYNC_PATH_R}  ${RSYNC_USER}@${HOST}:${BDIR}/ ${BUPATH}
-	logit 1 "Copy of $HOST:$BDIR done"
+	RESULT=$(${RSYNC_PATH_L} -a --exclude-from=${EXCLUDEFILE} --delete-excluded --delete  --rsync-path=${RSYNC_PATH_R}  ${RSYNC_USER}@${HOST}:${BDIR}/ ${BUPATH})
+	RC=$?
+	if [ "${RC}" -ne 0 ]; then
+		logit 1 "ERROR:  rsync failed:  ${RESULT}"
+	else
+		logit 1 "Copy of $HOST:$BDIR done"
+	fi
 
 	logit 1 "Completed backup of $HOST:$BDIR"
 done
