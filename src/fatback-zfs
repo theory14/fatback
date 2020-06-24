@@ -153,6 +153,10 @@ fi
 
 logit 2 "Loaded configuration."
 
+# make sure all zfs file systems are mounted.  This is really to catch
+# external USB drive used for external backups.
+/sbin/zfs mount -a
+
 # MAIN LOOP
 
 for LINE in $(grep -v "^.*#" "${CONF_DIR}/${SET}.sked")
